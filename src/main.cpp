@@ -1,5 +1,6 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/GJBaseGameLayer.hpp>
+#include <Geode/modify/PlayerObject.hpp>
 #include <Geode/modify/PauseLayer.hpp>
 #include <Geode/binding/PlayerObject.hpp>
 #include <Geode/loader/SettingV3.hpp>
@@ -8,10 +9,10 @@
 using namespace geode::prelude;
 
 namespace {
-    // 64-frame mode is first so it is the default and immediately testable.
     constexpr int kModes[] = { 0, 2, 4, 6, 8, 16, 64, -1 };
     constexpr int kModeCount = sizeof(kModes) / sizeof(kModes[0]);
     int g_modeIndex = 7;
+    bool g_pendingJump[2] = { false, false };
 
     int extraFrames() { return kModes[g_modeIndex]; }
     bool untilLandingMode() { return extraFrames() < 0; }
@@ -30,12 +31,15 @@ namespace {
         auto message = frames < 0
             ? "!!! JUMP QUEUED UNTIL LANDING !!!"
             : (frames == 64 ? "!!! 64 FRAME WINDOW ACTIVE !!!" : "FRAME CYCLE: " + modeName());
-        // Make both test modes unmistakable.
         Notification::create(message, NotificationIcon::Info, frames >= 64 || frames < 0 ? 5.0f : 2.5f)->show();
     }
 
     void cycleMode() {
         g_modeIndex = (g_modeIndex + 1) % kModeCount;
+        if (!untilLandingMode()) {
+            g_pendingJump[0] = false;
+            g_pendingJump[1] = false;
+        }
         showModePopup();
         log::info("Frame Cycle mode: {}", modeName());
     }
@@ -45,8 +49,6 @@ namespace {
         bool releaseQueued = false;
         int framesSincePress = 0;
         int button = 1;
-        bool pendingJump = false;
-        bool releaseInjectedNextTick = false;
     };
 }
 
@@ -68,27 +70,27 @@ class $modify(FrameCycleGameLayer, GJBaseGameLayer) {
             return;
         }
 
-        auto& state = m_fields->players[isP1 ? 0 : 1];
+        auto index = isP1 ? 0 : 1;
+        auto& state = m_fields->players[index];
 
-        // Special long-buffer mode: queue a normal jump input while airborne,
-        // then inject a one-tick press as soon as that player lands.
+        // In Until Landing mode, remember a released jump input while airborne.
+        // PlayerObject::hitGround consumes this queue at the actual landing event.
         if (untilLandingMode() && button == 1) {
             auto player = isP1 ? m_player1 : m_player2;
             if (down) {
                 if (player && !player->m_isOnGround && !player->m_isOnGround2) {
-                    state.pendingJump = true;
-                    state.button = button;
+                    g_pendingJump[index] = true;
                     state.held = false;
                     state.releaseQueued = false;
                     return;
                 }
-                state.pendingJump = false;
+                g_pendingJump[index] = false;
                 GJBaseGameLayer::handleButton(true, button, isP1);
                 state.held = true;
                 state.button = button;
                 return;
             }
-            if (state.pendingJump) return;
+            if (g_pendingJump[index]) return;
             state.held = false;
             GJBaseGameLayer::handleButton(false, button, isP1);
             return;
@@ -120,29 +122,32 @@ class $modify(FrameCycleGameLayer, GJBaseGameLayer) {
 
     void processCommands(float dt, bool isHalfTick, bool isLastTick) {
         GJBaseGameLayer::processCommands(dt, isHalfTick, isLastTick);
-        for (int i = 0; i < 2; i++) {
-            auto& state = m_fields->players[i];
-            if (untilLandingMode() && state.pendingJump) {
-                auto player = i == 0 ? m_player1 : m_player2;
-                if (player && !player->m_isDead && (player->m_isOnGround || player->m_isOnGround2)) {
-                    state.pendingJump = false;
-                    sendRaw(true, state.button, i == 0);
-                    state.releaseInjectedNextTick = true;
-                    continue;
-                }
-            }
-            if (state.releaseInjectedNextTick) {
-                state.releaseInjectedNextTick = false;
-                sendRaw(false, state.button, i == 0);
-            }
+        for (auto& state : m_fields->players) {
             if (!state.held) continue;
             state.framesSincePress++;
             if (state.releaseQueued && state.framesSincePress >= extraFrames()) {
                 state.releaseQueued = false;
                 state.held = false;
-                sendRaw(false, state.button, i == 0);
+                sendRaw(false, state.button, &state == &m_fields->players[0]);
             }
         }
+    }
+};
+
+class $modify(FrameCyclePlayerObject, PlayerObject) {
+    void hitGround(GameObject* object, bool notFlipped) {
+        PlayerObject::hitGround(object, notFlipped);
+
+        int index = isPlayer1() ? 0 : 1;
+        if (!bufferEnabled() || !untilLandingMode() || !g_pendingJump[index] || m_isDead) {
+            return;
+        }
+
+        // Consume exactly one queued jump on the landing event.
+        g_pendingJump[index] = false;
+        pushButton(PlayerButton::Jump);
+        releaseButton(PlayerButton::Jump);
+        log::info("Frame Cycle: queued jump fired on landing (P{})", index + 1);
     }
 };
 
