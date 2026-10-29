@@ -72,13 +72,18 @@ class $modify(FrameCycleGameLayer, GJBaseGameLayer) {
 
         auto& jump = isP1 ? m_fields->p1 : m_fields->p2;
 
-        // A press is remembered even if the player releases before landing.
-        // The request expires after the selected number of game ticks.
+        // Never swallow real input: always forward the user's press/release.
+        // Only buffer a press made while the player is airborne.
         if (down) {
-            jump.pending = true;
-            jump.expiresAt = m_fields->tick + static_cast<uint64_t>(selectedFrames());
+            if (playerGrounded(isP1)) {
+                jump.pending = false;
+            } else {
+                jump.pending = true;
+                jump.expiresAt = m_fields->tick + static_cast<uint64_t>(selectedFrames());
+            }
         }
-        // The release intentionally does not cancel the buffered jump.
+
+        GJBaseGameLayer::handleButton(down, button, isP1);
     }
 
     void processCommands(float dt, bool isHalfTick, bool isLastTick) {
