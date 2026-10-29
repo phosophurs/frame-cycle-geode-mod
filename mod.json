@@ -1,0 +1,37 @@
+{
+  "geode": "5.11.2",
+  "gd": { "win": "2.2081" },
+  "id": "arty.frame-cycle",
+  "name": "Frame Cycle",
+  "version": "v0.1.0",
+  "developer": "Arty",
+  "description": "Cycles input-buffer durations in physics frames.",
+  "tags": ["gameplay", "utility"],
+  "settings": {
+    "enabled": {
+      "type": "bool",
+      "name": "Enabled",
+      "description": "Enable input buffering.",
+      "default": true
+    },
+    "cycle-key": {
+      "type": "keybind",
+      "name": "Cycle frame mode",
+      "description": "Cycles Normal, 2, 4, 6, 8, and 16 frames.",
+      "default": "P",
+      "category": "gameplay"
+    },
+    "popup-key": {
+      "type": "keybind",
+      "name": "Show mode popup",
+      "description": "Displays the current mode.",
+      "default": "Z",
+      "category": "gameplay"
+    },
+    "show-popup": {
+      "type": "bool",
+      "name": "Show popup on mode change",
+      "default": true
+    }
+  }
+}
