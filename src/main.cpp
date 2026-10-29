@@ -58,22 +58,38 @@ class $modify(FrameCycleGameLayer, GJBaseGameLayer) {
         m_fields->injecting = false;
     }
 
+    PlayerObject* getPlayer(bool isP1) {
+        return isP1 ? m_player1 : m_player2;
+    }
+
     bool playerGrounded(bool isP1) {
-        auto player = isP1 ? m_player1 : m_player2;
+        auto player = getPlayer(isP1);
         return player && (player->m_isOnGround || player->m_isOnGround2);
     }
 
+    // Ground-style buffering is only meaningful for modes whose input is a
+    // jump action. Ship, UFO, Wave, and Swing use continuous/tap flight input,
+    // so their controls are always passed through unchanged.
+    bool usesGroundJump(bool isP1) {
+        auto player = getPlayer(isP1);
+        if (!player) return false;
+        return !player->m_isShip && !player->m_isBird &&
+            !player->m_isDart && !player->m_isSwing;
+    }
+
     void handleButton(bool down, int button, bool isP1) {
+        auto& jump = isP1 ? m_fields->p1 : m_fields->p2;
+
         if (m_fields->injecting || !bufferEnabled() ||
-            selectedFrames() == 0 || button != 1) {
+            selectedFrames() == 0 || button != 1 || !usesGroundJump(isP1)) {
+            // Clear stale buffered inputs when switching into a flight mode.
+            if (!usesGroundJump(isP1)) jump.pending = false;
             GJBaseGameLayer::handleButton(down, button, isP1);
             return;
         }
 
-        auto& jump = isP1 ? m_fields->p1 : m_fields->p2;
-
         // Never swallow real input: always forward the user's press/release.
-        // Only buffer a press made while the player is airborne.
+        // Remember airborne presses so they can trigger on landing.
         if (down) {
             if (playerGrounded(isP1)) {
                 jump.pending = false;
@@ -92,13 +108,16 @@ class $modify(FrameCycleGameLayer, GJBaseGameLayer) {
 
             auto tryBufferedJump = [this](BufferedJump& jump, bool isP1) {
                 if (!jump.pending) return;
+                if (!usesGroundJump(isP1)) {
+                    jump.pending = false;
+                    return;
+                }
                 if (m_fields->tick > jump.expiresAt) {
                     jump.pending = false;
                     return;
                 }
                 if (playerGrounded(isP1)) {
                     jump.pending = false;
-                    // Deliver a fresh tap on the first tick jumping is possible.
                     sendRaw(true, 1, isP1);
                     sendRaw(false, 1, isP1);
                 }
