@@ -1,6 +1,7 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/GJBaseGameLayer.hpp>
 #include <Geode/modify/PauseLayer.hpp>
+#include <Geode/binding/PlayerObject.hpp>
 #include <Geode/loader/SettingV3.hpp>
 #include <Geode/loader/GameEvent.hpp>
 
@@ -8,27 +9,29 @@ using namespace geode::prelude;
 
 namespace {
     // 64-frame mode is first so it is the default and immediately testable.
-    constexpr int kModes[] = { 0, 2, 4, 6, 8, 16, 64 };
+    constexpr int kModes[] = { 0, 2, 4, 6, 8, 16, 64, -1 };
     constexpr int kModeCount = sizeof(kModes) / sizeof(kModes[0]);
-    int g_modeIndex = 6;
+    int g_modeIndex = 7;
 
     int extraFrames() { return kModes[g_modeIndex]; }
+    bool untilLandingMode() { return extraFrames() < 0; }
     bool bufferEnabled() { return Mod::get()->getSettingValue<bool>("enabled"); }
 
     std::string modeName() {
         auto frames = extraFrames();
         if (frames == 0) return "NORMAL";
+        if (frames < 0) return "!!! UNTIL LANDING !!!";
         if (frames == 64) return "!!! 64 FRAME WINDOW !!!";
         return std::to_string(frames) + " FRAMES";
     }
 
     void showModePopup() {
         auto frames = extraFrames();
-        auto message = frames == 64
-            ? "!!! 64 FRAME WINDOW ACTIVE !!!"
-            : "FRAME CYCLE: " + modeName();
-        // Keep the 64-frame warning onscreen much longer so it is unmistakable.
-        Notification::create(message, NotificationIcon::Info, frames == 64 ? 5.0f : 2.5f)->show();
+        auto message = frames < 0
+            ? "!!! JUMP QUEUED UNTIL LANDING !!!"
+            : (frames == 64 ? "!!! 64 FRAME WINDOW ACTIVE !!!" : "FRAME CYCLE: " + modeName());
+        // Make both test modes unmistakable.
+        Notification::create(message, NotificationIcon::Info, frames >= 64 || frames < 0 ? 5.0f : 2.5f)->show();
     }
 
     void cycleMode() {
@@ -42,6 +45,8 @@ namespace {
         bool releaseQueued = false;
         int framesSincePress = 0;
         int button = 1;
+        bool pendingJump = false;
+        bool releaseInjectedNextTick = false;
     };
 }
 
@@ -58,12 +63,41 @@ class $modify(FrameCycleGameLayer, GJBaseGameLayer) {
     }
 
     void handleButton(bool down, int button, bool isP1) {
-        if (m_fields->injecting || !bufferEnabled() || extraFrames() <= 0) {
+        if (m_fields->injecting || !bufferEnabled()) {
             GJBaseGameLayer::handleButton(down, button, isP1);
             return;
         }
 
         auto& state = m_fields->players[isP1 ? 0 : 1];
+
+        // Special long-buffer mode: queue a normal jump input while airborne,
+        // then inject a one-tick press as soon as that player lands.
+        if (untilLandingMode() && button == 1) {
+            auto player = isP1 ? m_player1 : m_player2;
+            if (down) {
+                if (player && !player->m_isOnGround && !player->m_isOnGround2) {
+                    state.pendingJump = true;
+                    state.button = button;
+                    state.held = false;
+                    state.releaseQueued = false;
+                    return;
+                }
+                state.pendingJump = false;
+                GJBaseGameLayer::handleButton(true, button, isP1);
+                state.held = true;
+                state.button = button;
+                return;
+            }
+            if (state.pendingJump) return;
+            state.held = false;
+            GJBaseGameLayer::handleButton(false, button, isP1);
+            return;
+        }
+
+        if (extraFrames() <= 0) {
+            GJBaseGameLayer::handleButton(down, button, isP1);
+            return;
+        }
         if (down) {
             if (state.releaseQueued) {
                 state.releaseQueued = false;
@@ -88,6 +122,19 @@ class $modify(FrameCycleGameLayer, GJBaseGameLayer) {
         GJBaseGameLayer::processCommands(dt, isHalfTick, isLastTick);
         for (int i = 0; i < 2; i++) {
             auto& state = m_fields->players[i];
+            if (untilLandingMode() && state.pendingJump) {
+                auto player = i == 0 ? m_player1 : m_player2;
+                if (player && !player->m_isDead && (player->m_isOnGround || player->m_isOnGround2)) {
+                    state.pendingJump = false;
+                    sendRaw(true, state.button, i == 0);
+                    state.releaseInjectedNextTick = true;
+                    continue;
+                }
+            }
+            if (state.releaseInjectedNextTick) {
+                state.releaseInjectedNextTick = false;
+                sendRaw(false, state.button, i == 0);
+            }
             if (!state.held) continue;
             state.framesSincePress++;
             if (state.releaseQueued && state.framesSincePress >= extraFrames()) {
