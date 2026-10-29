@@ -7,7 +7,7 @@
   "name": "Frame Cycle",
   "version": "v0.1.0",
   "developer": "phosophurs",
-  "description": "Cycles input frame windows including a highly visible 64-frame test mode.",
+  "description": "Input buffering modes: Normal, 2/4/6/8/16/64 frames, plus a queued jump that fires on landing.",
   "tags": [
     "gameplay",
     "utility"
@@ -22,7 +22,7 @@
     "cycle-key": {
       "type": "keybind",
       "name": "Cycle frame mode",
-      "description": "Cycles Normal, 2, 4, 6, 8, 16, and 64 frames.",
+      "description": "Cycles Normal, 2, 4, 6, 8, 16, 64 frames, and Until Landing.",
       "default": "P",
       "category": "gameplay"
     },
