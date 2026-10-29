@@ -67,9 +67,8 @@ class $modify(FrameCycleGameLayer, GJBaseGameLayer) {
         return player && (player->m_isOnGround || player->m_isOnGround2);
     }
 
-    // Ground-style buffering is only meaningful for modes whose input is a
-    // jump action. Ship, UFO, Wave, and Swing use continuous/tap flight input,
-    // so their controls are always passed through unchanged.
+    // Preserve the original ground-jump buffering path for Cube and other
+    // ground-jump modes. Flight modes keep their native input behaviour.
     bool usesGroundJump(bool isP1) {
         auto player = getPlayer(isP1);
         if (!player) return false;
@@ -79,17 +78,17 @@ class $modify(FrameCycleGameLayer, GJBaseGameLayer) {
 
     void handleButton(bool down, int button, bool isP1) {
         auto& jump = isP1 ? m_fields->p1 : m_fields->p2;
+        const bool groundJumpMode = usesGroundJump(isP1);
 
         if (m_fields->injecting || !bufferEnabled() ||
-            selectedFrames() == 0 || button != 1 || !usesGroundJump(isP1)) {
+            selectedFrames() == 0 || button != 1 || !groundJumpMode) {
             // Clear stale buffered inputs when switching into a flight mode.
-            if (!usesGroundJump(isP1)) jump.pending = false;
+            if (!groundJumpMode) jump.pending = false;
             GJBaseGameLayer::handleButton(down, button, isP1);
             return;
         }
 
-        // Never swallow real input: always forward the user's press/release.
-        // Remember airborne presses so they can trigger on landing.
+        // Always pass the real input through; buffer airborne presses too.
         if (down) {
             if (playerGrounded(isP1)) {
                 jump.pending = false;
