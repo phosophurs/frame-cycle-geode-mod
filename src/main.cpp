@@ -7,25 +7,33 @@
 using namespace geode::prelude;
 
 namespace {
-    constexpr int kModes[] = { 0, 2, 4, 6, 8, 16 };
+    // 64-frame mode is first so it is the default and immediately testable.
+    constexpr int kModes[] = { 0, 2, 4, 6, 8, 16, 64 };
     constexpr int kModeCount = sizeof(kModes) / sizeof(kModes[0]);
-    int g_modeIndex = 3;
+    int g_modeIndex = 6;
 
     int extraFrames() { return kModes[g_modeIndex]; }
     bool bufferEnabled() { return Mod::get()->getSettingValue<bool>("enabled"); }
 
     std::string modeName() {
         auto frames = extraFrames();
-        return frames == 0 ? "Normal" : std::to_string(frames) + " frames";
+        if (frames == 0) return "NORMAL";
+        if (frames == 64) return "!!! 64 FRAME WINDOW !!!";
+        return std::to_string(frames) + " FRAMES";
     }
 
     void showModePopup() {
-        Notification::create("Frame Cycle: " + modeName(), NotificationIcon::Info, 1.5f)->show();
+        auto frames = extraFrames();
+        auto message = frames == 64
+            ? "!!! 64 FRAME WINDOW ACTIVE !!!"
+            : "FRAME CYCLE: " + modeName();
+        // Keep the 64-frame warning onscreen much longer so it is unmistakable.
+        Notification::create(message, NotificationIcon::Info, frames == 64 ? 5.0f : 2.5f)->show();
     }
 
     void cycleMode() {
         g_modeIndex = (g_modeIndex + 1) % kModeCount;
-        if (Mod::get()->getSettingValue<bool>("show-popup")) showModePopup();
+        showModePopup();
         log::info("Frame Cycle mode: {}", modeName());
     }
 
