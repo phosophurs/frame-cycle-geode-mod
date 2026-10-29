@@ -5,9 +5,9 @@
   },
   "id": "arty.frame-cycle",
   "name": "Frame Cycle",
-  "version": "v0.1.0",
+  "version": "v0.2.0",
   "developer": "phosophurs",
-  "description": "Input buffering modes: Normal, 2/4/6/8/16/64 frames, plus a queued jump that fires on landing.",
+  "description": "Delay jump input by Normal, 2, 4, 6, 8, or 16 game ticks. Includes mode popups and configurable keybinds.",
   "tags": [
     "gameplay",
     "utility"
@@ -16,20 +16,20 @@
     "enabled": {
       "type": "bool",
       "name": "Enabled",
-      "description": "Enable input buffering.",
+      "description": "Enable frame-delayed jump inputs.",
       "default": true
     },
     "cycle-key": {
       "type": "keybind",
       "name": "Cycle frame mode",
-      "description": "Cycles Normal, 2, 4, 6, 8, 16, 64 frames, and Until Landing.",
+      "description": "Cycles Normal, 2, 4, 6, 8, and 16 frame input delay.",
       "default": "P",
       "category": "gameplay"
     },
     "popup-key": {
       "type": "keybind",
       "name": "Show mode popup",
-      "description": "Displays the current mode.",
+      "description": "Displays the current frame mode.",
       "default": "Z",
       "category": "gameplay"
     },
