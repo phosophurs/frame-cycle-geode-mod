@@ -1,17 +1,13 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/GJBaseGameLayer.hpp>
 #include <Geode/modify/PauseLayer.hpp>
-#include <deque>
 #include <cstdint>
 
 using namespace geode::prelude;
 
 namespace {
-    // Normal is a true pass-through. Other values delay the complete jump
-    // input event (press AND release) by that many game ticks.
     constexpr int kModes[] = { 0, 2, 4, 6, 8, 16 };
     constexpr int kModeCount = sizeof(kModes) / sizeof(kModes[0]);
-
     int g_modeIndex = 0;
 
     bool bufferEnabled() {
@@ -24,41 +20,35 @@ namespace {
 
     std::string modeName() {
         const int frames = selectedFrames();
-        return frames == 0 ? "NORMAL" : std::to_string(frames) + " FRAMES";
+        return frames == 0 ? "NORMAL" : std::to_string(frames) + " FRAME BUFFER";
     }
 
     void showModePopup() {
         const int frames = selectedFrames();
         const std::string message = frames == 0
             ? "FRAME CYCLE: NORMAL"
-            : "FRAME CYCLE: " + std::to_string(frames) + " FRAME INPUT DELAY";
-        Notification::create(
-            message,
-            NotificationIcon::Info,
-            frames == 0 ? 2.0f : 2.5f
-        )->show();
+            : "FRAME CYCLE: " + std::to_string(frames) + " FRAME JUMP BUFFER";
+        Notification::create(message, NotificationIcon::Info,
+            frames == 0 ? 2.0f : 2.5f)->show();
     }
 
     void cycleMode() {
         g_modeIndex = (g_modeIndex + 1) % kModeCount;
-        if (Mod::get()->getSettingValue<bool>("show-popup")) {
-            showModePopup();
-        }
+        if (Mod::get()->getSettingValue<bool>("show-popup")) showModePopup();
         log::info("Frame Cycle mode: {}", modeName());
     }
 
-    struct QueuedInput {
-        uint64_t dueTick;
-        bool down;
-        int button;
-        bool isP1;
+    struct BufferedJump {
+        uint64_t expiresAt = 0;
+        bool pending = false;
     };
 }
 
 class $modify(FrameCycleGameLayer, GJBaseGameLayer) {
     struct Fields {
-        std::deque<QueuedInput> queuedInputs;
         uint64_t tick = 0;
+        BufferedJump p1;
+        BufferedJump p2;
         bool injecting = false;
     };
 
@@ -68,35 +58,53 @@ class $modify(FrameCycleGameLayer, GJBaseGameLayer) {
         m_fields->injecting = false;
     }
 
+    bool playerGrounded(bool isP1) {
+        auto player = isP1 ? m_player1 : m_player2;
+        return player && (player->m_isOnGround || player->m_isOnGround2);
+    }
+
     void handleButton(bool down, int button, bool isP1) {
-        // Only delay the actual jump input. All other buttons and Normal mode
-        // are passed directly to the original game handler.
         if (m_fields->injecting || !bufferEnabled() ||
             selectedFrames() == 0 || button != 1) {
             GJBaseGameLayer::handleButton(down, button, isP1);
             return;
         }
 
-        // Queue both edges. If the player taps quickly, the press and release
-        // arrive together after the selected delay, preserving a real click.
-        m_fields->queuedInputs.push_back(QueuedInput{
-            m_fields->tick + static_cast<uint64_t>(selectedFrames()),
-            down,
-            button,
-            isP1
-        });
+        auto& jump = isP1 ? m_fields->p1 : m_fields->p2;
+
+        // A press is remembered even if the player releases before landing.
+        // The request expires after the selected number of game ticks.
+        if (down) {
+            jump.pending = true;
+            jump.expiresAt = m_fields->tick + static_cast<uint64_t>(selectedFrames());
+        }
+        // The release intentionally does not cancel the buffered jump.
     }
 
     void processCommands(float dt, bool isHalfTick, bool isLastTick) {
-        // Count game ticks, not render frames. Deliver due input before the
-        // original command processing for this tick.
         if (isLastTick) {
             ++m_fields->tick;
-            while (!m_fields->queuedInputs.empty() &&
-                   m_fields->queuedInputs.front().dueTick <= m_fields->tick) {
-                const auto input = m_fields->queuedInputs.front();
-                m_fields->queuedInputs.pop_front();
-                sendRaw(input.down, input.button, input.isP1);
+
+            auto tryBufferedJump = [this](BufferedJump& jump, bool isP1) {
+                if (!jump.pending) return;
+                if (m_fields->tick > jump.expiresAt) {
+                    jump.pending = false;
+                    return;
+                }
+                if (playerGrounded(isP1)) {
+                    jump.pending = false;
+                    // Deliver a fresh tap on the first tick jumping is possible.
+                    sendRaw(true, 1, isP1);
+                    sendRaw(false, 1, isP1);
+                }
+            };
+
+            if (bufferEnabled() && selectedFrames() > 0) {
+                tryBufferedJump(m_fields->p1, true);
+                tryBufferedJump(m_fields->p2, false);
+            } else {
+                m_fields->p1.pending = false;
+                m_fields->p2.pending = false;
             }
         }
 
@@ -107,11 +115,9 @@ class $modify(FrameCycleGameLayer, GJBaseGameLayer) {
 class $modify(FrameCyclePauseLayer, PauseLayer) {
     void customSetup() {
         PauseLayer::customSetup();
-
         auto winSize = CCDirector::get()->getWinSize();
         auto sprite = CCSprite::createWithSpriteFrameName("GJ_optionsBtn_001.png");
         if (!sprite) return;
-
         sprite->setScale(0.6f);
         auto button = CCMenuItemSpriteExtra::create(
             sprite, this, menu_selector(FrameCyclePauseLayer::onFrameCycleSettings)
@@ -133,7 +139,6 @@ $on_game(Loaded) {
         [](Keybind const&, bool down, bool repeat, double) {
             if (down && !repeat) cycleMode();
         });
-
     listenForKeybindSettingPresses("popup-key",
         [](Keybind const&, bool down, bool repeat, double) {
             if (down && !repeat) showModePopup();
