@@ -4,7 +4,7 @@
   "id": "arty.frame-cycle",
   "name": "Frame Cycle",
   "version": "v0.1.0",
-  "developer": "Arty",
+  "developer": "phosophurs",
   "description": "Cycles input-buffer durations in physics frames.",
   "tags": ["gameplay", "utility"],
   "settings": {
