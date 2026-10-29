@@ -6,7 +6,7 @@
 using namespace geode::prelude;
 
 namespace {
-    constexpr int kModes[] = { 0, 2, 4, 6, 8, 16 };
+    constexpr int kModes[] = { 0, 2, 4, 6, 8, 16, 64, 128 };
     constexpr int kModeCount = sizeof(kModes) / sizeof(kModes[0]);
     int g_modeIndex = 0;
 
